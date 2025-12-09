@@ -643,8 +643,23 @@ public class MainApp extends Application {
 
                 // 2b. PRIORIDAD 2: CONVERSIÓN A EXP
                 if (superavitParaGastar > 0) {
+                    final int MAX_EXP_CAPACITY = 500; // Usar la constante que definiste
+                    int expActual = nucleo.getExpAcumulada();
+                    int espacioDisponible = MAX_EXP_CAPACITY - expActual;
+
                     int expGenerada = superavitParaGastar * 1;
-                    nucleo.sumarExp(expGenerada);
+
+                    if (espacioDisponible > 0) {
+                        // Solo se acumula la EXP hasta el límite (CAP)
+                        int expRealAcumulada = Math.min(expGenerada, espacioDisponible);
+
+                        nucleo.sumarExp(expRealAcumulada);
+                        System.out.println("Ganados X EXP...");
+
+                    } else {
+                        // ADVERTENCIA: El jugador está en el límite y está desperdiciando recursos.
+                        System.out.println("ADVERTENCIA: Límite de EXP alcanzado.");
+                    }
                 }
             }
         } else {
