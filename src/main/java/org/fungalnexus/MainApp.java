@@ -5,6 +5,7 @@ import javafx.animation.PathTransition;
 import javafx.application.Application;
 import javafx.geometry.Insets;
 import javafx.geometry.Point2D;
+import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
@@ -43,6 +44,7 @@ public class MainApp extends Application {
     private boolean isGameOver = false;
     private final long HEALTH_DECAY_START_TIME = 20_000_000_000L;
     private boolean modoConstruccion = false;
+    private boolean modoMejora = false;
     private final double TOLERANCIA_CLIC = 15.0;
     // Componentes del Juego
     private Canvas canvas;
@@ -114,30 +116,48 @@ public class MainApp extends Application {
     }
 
     private VBox crearPanelHUD() {
-
         // Usaremos un HBox para colocar los elementos de estado en una fila
-        HBox statusBar = new HBox(15); // Espaciado de 15 píxeles
-        statusBar.setPadding(new Insets(10, 10, 10, 10)); // Padding alrededor del panel
-        statusBar.setStyle("-fx-background-color: #333333;"); // Fondo oscuro para contraste
+        HBox statusBar = new HBox(15);
+        statusBar.setPadding(new Insets(10, 10, 10, 10));
+        statusBar.setStyle("-fx-background-color: #333333;");
 
-        // 1. Label para el Balance Económico (Línea de texto)
+        // 1. Label para el Balance Económico
         statusLabel = new Label("Balance: Calculando...");
         statusLabel.setStyle("-fx-text-fill: white; -fx-font-size: 14px;");
 
-        // 2. Barra de Salud (Corazón)
-        ProgressBar healthBar = new ProgressBar(1.0); // Inicialmente lleno
+        // Usamos un VBox para apilar Health y EXP
+        VBox barContainer = new VBox(5);
+
+        // 2. Barra de Salud
+        healthBar = new ProgressBar(1.0);
         healthBar.setPrefWidth(150);
-        // (Debes crear un método para actualizar esta barra basado en nucleo.getSalud())
 
-        // 3. Barra de EXP (Rayo)
-        ProgressBar expBar = new ProgressBar(0.0); // Inicialmente vacío
+        HBox healthGroup = new HBox(5);
+        healthGroup.setAlignment(Pos.CENTER_LEFT);
+
+        Label healthIcon = new Label("salud");
+
+        healthIcon.setStyle("-fx-text-fill: white; -fx-font-size: 14px;");
+        healthGroup.getChildren().addAll(healthIcon, healthBar);
+
+        // 3. Barra de EXP
+        expBar = new ProgressBar(0.0);
         expBar.setPrefWidth(150);
-        // (Debes crear un método para actualizar esta barra basado en nucleo.getExpAcumulada())
 
-        statusBar.getChildren().addAll(statusLabel, healthBar, expBar);
+        HBox expGroup = new HBox(5);
+        expGroup.setAlignment(Pos.CENTER_LEFT);
 
-        // Configuramos cómo se estiran los elementos, si es necesario
-        HBox.setHgrow(statusLabel, Priority.ALWAYS); // Permite que el label ocupe espacio restante
+        Label expIcon = new Label("exp");
+        expIcon.setStyle("-fx-text-fill: white; -fx-font-size: 14px;");
+        expGroup.getChildren().addAll(expIcon, expBar);
+
+        // PASO 1: Agregamos los grupos al contenedor vertical (VBox)
+        barContainer.getChildren().addAll(healthGroup, expGroup);
+
+        // SOLUCIÓN: Agregamos el statusLabel y el barContainer (que ya contiene las barras apiladas)
+        statusBar.getChildren().addAll(statusLabel, barContainer);
+
+        HBox.setHgrow(statusLabel, Priority.ALWAYS);
 
         return new VBox(statusBar);
     }
@@ -160,7 +180,17 @@ public class MainApp extends Application {
         // --- Botón de Interacción/Mejora (Puño) ---
         Button interactButton = new Button("👊 Mejorar");
         interactButton.setPrefSize(80, 80);
-        interactButton.setDisable(true); // Desactivado hasta que implementemos el Tooltip de mejora.
+
+        interactButton.setOnAction(e -> {
+            // 1. Alterna el modo Mejora.
+            modoMejora = !modoMejora;
+            System.out.println("Modo Mejora " + (modoMejora ? "ACTIVO" : "DESACTIVADO"));
+
+            // 2. Desactiva el modo Construcción si el modo Mejora está activo
+            if (modoMejora) {
+                modoConstruccion = false;
+            }
+        });
 
         toolBox.getChildren().addAll(buildButton, interactButton);
         return toolBox;
@@ -273,36 +303,46 @@ public class MainApp extends Application {
         String recurso = "Nutrientes";
 
         // A. Conexión del Balance Neto (implementado en el paso anterior)
-        int balanceNeto = calcularBalanceEconomicoNeto();
-        String iconoBalance = (balanceNeto >= 0) ? "🟢" : "🔴";
-        String signoBalance = (balanceNeto >= 0) ? "+" : "";
+        int produccionTotal = colonia.calcularProduccionTotal("Nutrientes");
+        int mantenimiento = colonia.calcularCostoTotalMantenimiento("Nutrientes");
+        int balanceNutrientes = produccionTotal - mantenimiento;
+
+        String balanceSigno = balanceNutrientes >= 0 ? "+" : "";
+        String balanceColor = balanceNutrientes >= 0 ? "lightgreen" : "red";
+
+        int numExtractores = colonia.obtenerTodosLosCentros().size() - 1;
+
+        String status = String.format(
+                "Estatus | Balance Neto: %s%d u/s | Salud: %d/100 | EXP: %d/%d | Extractores: %d",
+                balanceSigno,
+                balanceNutrientes,
+                nucleo.getSalud(),
+                nucleo.getExpAcumulada(),
+                MAX_EXP_CAPACITY,
+                numExtractores
+        );
 
         // B. Métrica de las Barras (Ej., el MAX_EXP_CAPACITY es 500)
         final int MAX_EXP_CAPACITY = 500;
 
-        // C. Formateo del Label de Estado
-        String status = String.format(
-                "Balance: %s %s%d u/s | Salud: %d/100 | EXP: %d/%d | Nutrientes: %d",
-                iconoBalance,
-                signoBalance,
-                Math.abs(balanceNeto),
-                nucleo.getSalud(),
-                nucleo.getExpAcumulada(),
-                MAX_EXP_CAPACITY,
-                nucleo.getInventario().getOrDefault(recurso, 0)
-        );
         statusLabel.setText(status);
+        statusLabel.setStyle(String.format("-fx-text-fill: %s; -fx-font-size: 14px;", balanceColor));
 
-        // D. Actualización de las Barras (Si creaste las variables de campo para ellas)
-        // healthBar.setProgress(nucleo.getSalud() / 100.0);
-        // expBar.setProgress(nucleo.getExpAcumulada() / (double)MAX_EXP_CAPACITY);
-    }
+        double saludProgress = nucleo.getSalud() / 100.0;
+        healthBar.setProgress(saludProgress);
 
-    private int costoTotalMantenimiento() {
-        return colonia.obtenerTodasLasHifas().stream()
-                .flatMap(List::stream)
-                .mapToInt(Hifa::getCostoMantenimiento)
-                .sum() + COSTO_MANTENIMIENTO_BASE_NUCLEO;
+        if (saludProgress <= 0.2) { // Si la salud es 20% o menos
+            healthBar.setStyle("-fx-accent: red;");
+        } else if (saludProgress <= 0.5) {
+            // Sugerencia: Añadir un estado de advertencia (Amarillo/Naranja)
+            healthBar.setStyle("-fx-accent: orange;");
+        } else {
+            // Estado normal (Verde o el que uses por defecto)
+            healthBar.setStyle("-fx-accent: forestgreen;");
+        }
+
+        double expProgress = nucleo.getExpAcumulada() / (double)MAX_EXP_CAPACITY;
+        expBar.setProgress(expProgress);
     }
 
     private void iniciarInteraccion(Scene scene) {
@@ -319,36 +359,40 @@ public class MainApp extends Application {
                 // Se desactiva el modo al construir, para evitar colocaciones accidentales
                 modoConstruccion = false;
                 construirCentroExtractor(e.getX(), e.getY());
-
-                // Aquí puedes llamar a una función que actualice el estilo del botón
-                // para mostrar que el modo construcción está OFF.
                 return;
             }
 
-            // 2. Lógica de Mejora de Hifa
-            Hifa hifaClickeada = buscarHifaEnCoordenadas(clickPoint);
+            if (modoMejora) {
 
-            if (hifaClickeada != null) {
-                // La lógica de verificación de EXP y mejora se mantiene, pero las alertas
-                // de terminal deben ser reemplazadas por mensajes en la UI.
+                modoMejora = false;
 
-                if (nucleo.getExpAcumulada() >= COSTO_MEJORA_HIFA && hifaClickeada.getCapacidadMaxima() == 10) {
-                    // Aplicar Mejora
-                    nucleo.restarExp(COSTO_MEJORA_HIFA);
-                    hifaClickeada.setCapacidadMaxima(14);
+                Hifa hifaClickeada = buscarHifaEnCoordenadas(clickPoint);
 
-                    // Reemplazar System.out por actualización de UI/log en pantalla
-                    // Por ejemplo: mostrarMensajeUI("Hifa mejorada!");
-                    System.out.println("Hifa mejorada.");
+                if (hifaClickeada != null) {
+                    if (hifaClickeada != null) {
+                        // La lógica de verificación de EXP y mejora se mantiene, pero las alertas
+                        // de terminal deben ser reemplazadas por mensajes en la UI.
 
-                    dibujarGrafo();
+                        if (nucleo.getExpAcumulada() >= COSTO_MEJORA_HIFA && hifaClickeada.getCapacidadMaxima() == 10) {
+                            // Aplicar Mejora
+                            nucleo.restarExp(COSTO_MEJORA_HIFA);
+                            hifaClickeada.setCapacidadMaxima(14);
+
+                            // Reemplazar System.out por actualización de UI/log en pantalla
+                            // Por ejemplo: mostrarMensajeUI("Hifa mejorada!");
+                            System.out.println("Hifa mejorada.");
+
+                            dibujarGrafo();
+                            return;
+                        } else if (hifaClickeada.getCapacidadMaxima() > 10) {
+                            // Reemplazar System.out por actualización de UI/log en pantalla
+                            System.out.println("Esta Hifa ya está mejorada.");
+                        } else {
+                            // Reemplazar System.err por actualización de UI/log en pantalla
+                            System.err.println("EXP insuficiente.");
+                        }
+                    }
                     return;
-                } else if (hifaClickeada.getCapacidadMaxima() > 10) {
-                    // Reemplazar System.out por actualización de UI/log en pantalla
-                    System.out.println("Esta Hifa ya está mejorada.");
-                } else {
-                    // Reemplazar System.err por actualización de UI/log en pantalla
-                    System.err.println("EXP insuficiente.");
                 }
             }
         });
@@ -660,21 +704,21 @@ public class MainApp extends Application {
     private void manejarConsumoYSuperavit(Centro nucleo, String recurso) {
         if (colonia.obtenerTodosLosCentros().size() <= 1) return;
 
-        final int costoOperacionalNucleo = COSTO_MANTENIMIENTO_BASE_NUCLEO;
+        final int costoTotalMantenimientoRed = colonia.calcularCostoTotalMantenimiento(recurso);
         int nutrientesDisponibles = nucleo.getInventario().getOrDefault(recurso, 0);
 
         // 1. CÁLCULO DEL SUPERÁVIT POTENCIAL
-        int superavitPotencial = nutrientesDisponibles - costoOperacionalNucleo;
+        int balanceNeto = nutrientesDisponibles - costoTotalMantenimientoRed;
 
         // C. Lógica de Pago y Falla
-        if (nutrientesDisponibles >= costoOperacionalNucleo) {
+        if (nutrientesDisponibles >= costoTotalMantenimientoRed) {
 
             // PAGO EXITOSO: Forzamos el inventario a cero (toda la capacidad de pago/superávit se "consume")
             nucleo.getInventario().put(recurso, 0);
 
             // 2. PRIORIDAD: SANACIÓN Y CONVERSIÓN A EXP
-            if (superavitPotencial > 0) {
-                int superavitParaGastar = superavitPotencial;
+            if (balanceNeto > 0) {
+                int superavitParaGastar = balanceNeto;
                 int saludActual = nucleo.getSalud();
                 int puntosDeVidaFaltantes = 100 - saludActual;
 
@@ -698,7 +742,7 @@ public class MainApp extends Application {
                         int expRealAcumulada = Math.min(expGenerada, espacioDisponible);
 
                         nucleo.sumarExp(expRealAcumulada);
-                        System.out.println("Ganados X EXP...");
+                        System.out.println("Ganando EXP...");
 
                     } else {
                         // ADVERTENCIA: El jugador está en el límite y está desperdiciando recursos.

@@ -56,6 +56,18 @@ public class Centro {
         return 0;
     }
 
+    public int getTasaProduccion(String recurso) {
+        if (this.tipo.equals("Extraccion") && recurso.equals("Nutrientes")) {
+            final int PRODUCCION_BASE = 10; // Valor base de producción asumido
+
+            // La producción es el menor valor entre la capacidad y lo restante en el yacimiento
+            if (yacimientoRestante > 0) {
+                return Math.min(PRODUCCION_BASE, yacimientoRestante);
+            }
+        }
+        return 0;
+    }
+
     public int getYacimientoRestante() {
         return yacimientoRestante;
     }
