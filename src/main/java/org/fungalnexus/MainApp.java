@@ -3,47 +3,26 @@ package org.fungalnexus;
 import javafx.animation.AnimationTimer;
 import javafx.animation.PathTransition;
 import javafx.application.Application;
+import javafx.geometry.Insets;
 import javafx.geometry.Point2D;
 import javafx.scene.Scene;
+import javafx.scene.canvas.Canvas;
+import javafx.scene.canvas.GraphicsContext;
+import javafx.scene.control.*;
 import javafx.scene.input.KeyCode;
-import javafx.scene.layout.Pane;
+import javafx.scene.layout.*;
 import javafx.scene.shape.Circle;
 import javafx.scene.shape.Line;
 import javafx.scene.text.Text;
 import javafx.stage.Stage;
 import javafx.scene.paint.Color;
 import javafx.util.Duration;
-import javafx.scene.control.Alert;
-import javafx.scene.control.ButtonType;
 import javafx.scene.control.Alert.AlertType;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-
-class CentroView extends Circle {
-    private Centro modelo;
-
-    public CentroView(Centro centro, double x, double y, double radio) {
-        super(x, y, radio);
-        this.modelo = centro;
-        this.setStroke(Color.BLACK);
-        actualizarVisualizacion();
-    }
-
-    public void actualizarVisualizacion() {
-        if (modelo.getSalud() <= 20) {
-            this.setFill(Color.DARKRED);
-        } else if (modelo.getTipo().equals("Central")) {
-            this.setFill(Color.PURPLE);
-        } else if (modelo.getTipo().equals("Extraccion")) {
-            this.setFill(Color.GREEN); // Extracción de Nutrientes = Verde
-        } else {
-            this.setFill(Color.BROWN);
-        }
-    }
-}
 
 class FlujoParticle extends Circle {
     public FlujoParticle(Color color) {
@@ -57,18 +36,22 @@ public class MainApp extends Application {
 
     // Variables de Estado del juego
     private ColoniaGrafo colonia;
-    private Pane root;
-    private Map<String, CentroView> vistasDeCentros = new HashMap<>();
+    private BorderPane root;
     private Map<String, Point2D> coordenadasDeCentros = new HashMap<>();
-    private Text hudText; // Para mostrar EXP y Salud
     private double TILE_SIZE = 50.0;
-    private String gameState = "WAITING_FOR_SETUP";
     private long startTime = 0;
     private boolean isGameOver = false;
     private final long HEALTH_DECAY_START_TIME = 20_000_000_000L;
     private boolean modoConstruccion = false;
     private final double TOLERANCIA_CLIC = 15.0;
-    private final int COSTO_EXPANSION_EXTRACCION_NUEVO = 40;
+    // Componentes del Juego
+    private Canvas canvas;
+    private GraphicsContext gc;
+    private Pane animationPane;
+    // Componentes del HUD (para poder actualizarlos)
+    private Label statusLabel;
+    private ProgressBar healthBar;
+    private ProgressBar expBar;
 
     // Costos y parametros del juego
     private final int COSTO_EXPANSION_EXTRACCION = 40;
@@ -76,174 +59,243 @@ public class MainApp extends Application {
     private final int COSTO_MANTENIMIENTO_HIFA_BASE = 2;
     private final double PIXELES_POR_UNIDAD_DE_COSTO = 100.0;
     private final int COSTO_MEJORA_HIFA = 10;
+
     private final int MAX_EXP_CAPACITY = 500;
 
     private final double LIMITE_CONSTRUCCION_DISTANCIA = 3.0 * TILE_SIZE;
+    private static final int WIDTH = 1000;
+    private static final int HEIGHT = 700;
 
     @Override
     public void start(Stage primaryStage) {
-        colonia = new ColoniaGrafo();
-        root = new Pane();
-        root.setPrefSize(1000, 700);
-        root.setStyle("-fx-background-color: #2b1c09");
 
-        setupGrafoInicial();
-        iniciarHUD();
-        iniciarCicloSimulacion();
 
-        Scene mainScene = new Scene(root, 1000, 700);
+        // --- Contenedores de Layout ---
+        root = new BorderPane(); // Contenedor principal
 
-        primaryStage.setTitle("Fungal Nexus - Prototipo Interactivo");
-        primaryStage.setScene(mainScene);
+        // Inicialización del Canvas y GraphicsContext
+        canvas = new Canvas(WIDTH, HEIGHT); // Ahora estás inicializando el campo de clase
+        gc = canvas.getGraphicsContext2D();
 
-        iniciarInteraccion(mainScene);
+        animationPane = new Pane();
+        animationPane.setPrefSize(WIDTH, HEIGHT);
+        animationPane.setPickOnBounds(false);
 
+        StackPane centerStack = new StackPane();
+        centerStack.getChildren().addAll(canvas, animationPane);
+
+        root.setCenter(centerStack);
+
+        // --- Configuración de Paneles ---
+
+        // 1. PANEL SUPERIOR (HUD)
+        VBox topPanel = crearPanelHUD();
+        root.setTop(topPanel);
+
+        // 2. PANEL LATERAL DERECHO (Herramientas/Botones)
+        VBox rightPanel = crearPanelHerramientas();
+        root.setRight(rightPanel);
+
+        // --- Configuración de la Escena ---
+        Scene scene = new Scene(root);
+
+        inicializarJuegoBase();
+
+        dibujarGrafo();
+
+        iniciarInteraccion(scene);
+
+        primaryStage.setTitle("Fungus Growth Strategy");
+        primaryStage.setScene(scene);
         primaryStage.show();
-        startTime = System.nanoTime(); // Iniciar el temporizador
+
+        // Inicia el ciclo de juego
+        iniciarGameLoop();
     }
 
-    // Setup inicial del Grafo logico
-    private void setupGrafoInicial() {
-        // Único nodo inicial con EXP de arranque (50 EXP)
+    private VBox crearPanelHUD() {
+
+        // Usaremos un HBox para colocar los elementos de estado en una fila
+        HBox statusBar = new HBox(15); // Espaciado de 15 píxeles
+        statusBar.setPadding(new Insets(10, 10, 10, 10)); // Padding alrededor del panel
+        statusBar.setStyle("-fx-background-color: #333333;"); // Fondo oscuro para contraste
+
+        // 1. Label para el Balance Económico (Línea de texto)
+        statusLabel = new Label("Balance: Calculando...");
+        statusLabel.setStyle("-fx-text-fill: white; -fx-font-size: 14px;");
+
+        // 2. Barra de Salud (Corazón)
+        ProgressBar healthBar = new ProgressBar(1.0); // Inicialmente lleno
+        healthBar.setPrefWidth(150);
+        // (Debes crear un método para actualizar esta barra basado en nucleo.getSalud())
+
+        // 3. Barra de EXP (Rayo)
+        ProgressBar expBar = new ProgressBar(0.0); // Inicialmente vacío
+        expBar.setPrefWidth(150);
+        // (Debes crear un método para actualizar esta barra basado en nucleo.getExpAcumulada())
+
+        statusBar.getChildren().addAll(statusLabel, healthBar, expBar);
+
+        // Configuramos cómo se estiran los elementos, si es necesario
+        HBox.setHgrow(statusLabel, Priority.ALWAYS); // Permite que el label ocupe espacio restante
+
+        return new VBox(statusBar);
+    }
+
+    private VBox crearPanelHerramientas() {
+        VBox toolBox = new VBox(10); // Espaciado de 10 píxeles
+        toolBox.setPadding(new Insets(20, 10, 20, 10));
+        toolBox.setPrefWidth(100); // Ancho fijo
+        toolBox.setStyle("-fx-background-color: #555555;"); // Fondo para diferenciar
+
+        // --- Botón de Construcción (Martillo) ---
+        Button buildButton = new Button("🔨 Construir");
+        buildButton.setPrefSize(80, 80);
+        buildButton.setOnAction(e -> {
+            modoConstruccion = !modoConstruccion;
+            // La UI debería dar feedback visual aquí (ej., cambiar el estilo del botón)
+            System.out.println("Modo Construcción " + (modoConstruccion ? "ACTIVO" : "DESACTIVADO"));
+        });
+
+        // --- Botón de Interacción/Mejora (Puño) ---
+        Button interactButton = new Button("👊 Mejorar");
+        interactButton.setPrefSize(80, 80);
+        interactButton.setDisable(true); // Desactivado hasta que implementemos el Tooltip de mejora.
+
+        toolBox.getChildren().addAll(buildButton, interactButton);
+        return toolBox;
+    }
+
+    private void inicializarJuegoBase() {
+        // Definición de las constantes de tamaño de la ventana
+        final double MAP_WIDTH = 1000;
+        final double MAP_HEIGHT = 700;
+
+        // 1. Inicializar la colonia (la estructura de datos)
+        colonia = new ColoniaGrafo();
+
+        // 2. Crear y configurar el Núcleo Central (Único nodo inicial)
+        // Usaremos la EXP inicial aquí si la necesitas para el tutorial
+        final int EXP_INICIAL = 50;
         Centro nucleo = new Centro("NucleoCentral", "Central");
+        nucleo.sumarExp(EXP_INICIAL); // Opcional: Dale EXP de arranque
 
         colonia.agregarCentro(nucleo);
 
-        // Posicionamiento en el centro del mapa
-        coordenadasDeCentros.put("NucleoCentral", new Point2D(root.getPrefWidth() / 2, root.getPrefHeight() / 2));
+        // 3. Posicionamiento del Núcleo (usa las dimensiones fijas)
+        // Asegúrate de que 'coordenadasDeCentros' sea un campo de clase inicializado.
+        coordenadasDeCentros.put("NucleoCentral", new Point2D(MAP_WIDTH / 2, MAP_HEIGHT / 2));
 
-        dibujarGrafo(); // Dibuja solo el núcleo inicialmente
-        gameState = "WAITING_FOR_EXTRACTION_PLACEMENT";
+        // 4. Inicializar el tiempo de inicio
+        startTime = System.nanoTime();
 
-        System.out.println("EXP Incial: " + nucleo.getExpAcumulada());
+        // 5. Limpieza de estado antiguo
+        // Si usabas gameState, puedes eliminarlo o inicializarlo a un valor 'PLAYING'.
+        // gameState = "PLAYING";
+
+        System.out.println("Juego Base Inicializado. EXP Inicial: " + nucleo.getExpAcumulada());
+    }
+
+    private Color getColorForCentro(Centro centro) {
+        if (centro.getSalud() <= 20) {
+            return Color.DARKRED; // Salud baja
+        } else if (centro.getTipo().equals("Central")) {
+            return Color.PURPLE; // Núcleo
+        } else if (centro.getTipo().equals("Extraccion")) {
+            return Color.GREEN; // Extracción
+        } else {
+            return Color.BROWN; // Default
+        }
     }
 
     // Dibujo y visualizacion
     private void dibujarGrafo() {
-        // 1. Guardar el objeto Text del HUD
-        Text tempHudText = this.hudText;
+        // 1. Limpiar y establecer fondo del Canvas
+        gc.clearRect(0, 0, canvas.getWidth(), canvas.getHeight());
+        gc.setFill(Color.web("#402c18")); // Fondo marrón para el mapa
+        gc.fillRect(0, 0, canvas.getWidth(), canvas.getHeight());
 
-        root.getChildren().clear(); // Limpiar el panel
+        // 2. Dibujar el Grid
+        dibujarGrid(); // La lógica de dibujarGrid también DEBE USAR 'gc' ahora.
 
-        // Dibujar líneas de grid para referencia
-        dibujarGrid();
-
-        // Dibujar Nodos (Centros)
-        for (Centro centro : colonia.obtenerTodosLosCentros()) {
-            Point2D coords = coordenadasDeCentros.get(centro.getNombre());
-            double radio = centro.getTipo().equals("Central") ? 30 : 20;
-            CentroView view = new CentroView(centro, coords.getX(), coords.getY(), radio);
-            vistasDeCentros.put(centro.getNombre(), view);
-            root.getChildren().add(view);
-        }
-
-        // Dibujar Hifas
+        // 3. Dibujar Hifas (Usando gc.strokeLine)
+        gc.setStroke(Color.SADDLEBROWN);
         for (String origen : colonia.obtenerNombresDeCentros()) {
             for (Hifa hifa : colonia.obtenerHifas(origen)) {
                 Point2D coordsOrigen = coordenadasDeCentros.get(origen);
                 Point2D coordsDestino = coordenadasDeCentros.get(hifa.getDestinoNombre());
 
                 if (coordsOrigen != null && coordsDestino != null) {
-                    Line hifaLine = new Line(coordsOrigen.getX(), coordsOrigen.getY(), coordsDestino.getX(), coordsDestino.getY());
-                    hifaLine.setStrokeWidth(hifa.getCapacidadMaxima() / 5.0);
-                    hifaLine.setStroke(Color.SADDLEBROWN);
-                    root.getChildren().add(0, hifaLine);
+                    // Dibujo de la línea en el Canvas
+                    gc.setLineWidth(hifa.getCapacidadMaxima() / 5.0);
+                    gc.strokeLine(coordsOrigen.getX(), coordsOrigen.getY(), coordsDestino.getX(), coordsDestino.getY());
                 }
             }
         }
 
-        // Restaurar el HUD al final para que esté siempre encima
-        if (tempHudText != null) {
-            root.getChildren().add(tempHudText);
+        // 4. Dibujar Nodos (Centros) (Usando gc.fillOval)
+        for (Centro centro : colonia.obtenerTodosLosCentros()) {
+            Point2D coords = coordenadasDeCentros.get(centro.getNombre());
+            double radio = centro.getTipo().equals("Central") ? 30 : 20;
+
+            // Determinar el color: (Deberías mover la lógica de color de CentroView aquí)
+            Color fillColor = getColorForCentro(centro);
+
+            gc.setFill(fillColor);
+            gc.fillOval(coords.getX() - radio, coords.getY() - radio, 2 * radio, 2 * radio);
+
+            // Dibujar borde
+            gc.setStroke(Color.BLACK);
+            gc.setLineWidth(1.0);
+            gc.strokeOval(coords.getX() - radio, coords.getY() - radio, 2 * radio, 2 * radio);
         }
     }
 
     private void dibujarGrid() {
-        for (double i = 0; i < root.getPrefWidth(); i += TILE_SIZE) {
-            Line line = new Line(i, 0, i, root.getPrefHeight());
-            line.setStroke(Color.LIGHTGRAY);
-            root.getChildren().add(line);
+        gc.setStroke(Color.DARKGRAY);
+        gc.setLineWidth(0.5);
+
+        double canvasW = canvas.getWidth();
+        double canvasH = canvas.getHeight();
+
+        // Dibujar líneas verticales
+        for (double i = 0; i < canvasW; i += TILE_SIZE) {
+            gc.strokeLine(i, 0, i, canvasH);
         }
-        for (double i = 0; i < root.getPrefHeight(); i += TILE_SIZE) {
-            Line line = new Line(0, i, root.getPrefWidth(), i);
-            line.setStroke(Color.LIGHTGRAY);
-            root.getChildren().add(line);
+        // Dibujar líneas horizontales
+        for (double i = 0; i < canvasH; i += TILE_SIZE) {
+            gc.strokeLine(0, i, canvasW, i);
         }
     }
 
-    private void iniciarHUD() {
-        hudText = new Text(10, 20, "Inicia la partida...");
-        hudText.setFill(Color.WHITE);
-        root.getChildren().add(hudText);
-    }
-
-    private void actualizarHUD(long elapsedTime) {
-        Centro extractorPrincipal = colonia.obtenerTodosLosCentros().stream()
-                .filter(c -> c.getTipo().equals("Extraccion"))
-                .findFirst()
-                .orElse(null);
-
-        String infoYacimiento = "";
-        if (extractorPrincipal != null) {
-            infoYacimiento = String.format(" | Yacimiento: %d/%d", extractorPrincipal.getYacimientoRestante(), extractorPrincipal.CAPACIDAD_MAXIMA_YACIMIENTO);
-        }
-
+    public void actualizarHUD() {
         Centro nucleo = colonia.obtenerCentro("NucleoCentral");
-        long seconds = elapsedTime / 1_000_000_000;
+        String recurso = "Nutrientes";
 
-        // --- 1. Definición de Estados del Sistema ---
-        boolean sistemaActivo = colonia.obtenerTodosLosCentros().size() > 1;
+        // A. Conexión del Balance Neto (implementado en el paso anterior)
+        int balanceNeto = calcularBalanceEconomicoNeto();
+        String iconoBalance = (balanceNeto >= 0) ? "🟢" : "🔴";
+        String signoBalance = (balanceNeto >= 0) ? "+" : "";
 
-        // Simplificado: ¿Existe alguna Hifa que aún tenga la capacidad base de 10?
-        boolean hifaEnNivelBase = colonia.obtenerTodasLasHifas().stream()
-                .flatMap(List::stream)
-                .anyMatch(h -> h.getCapacidadMaxima() == 10);
+        // B. Métrica de las Barras (Ej., el MAX_EXP_CAPACITY es 500)
+        final int MAX_EXP_CAPACITY = 500;
 
-        // Simplificado: ¿Existe alguna Hifa que ya esté mejorada (> 10)?
-        boolean hifaMejorada = colonia.obtenerTodasLasHifas().stream()
-                .flatMap(List::stream)
-                .anyMatch(h -> h.getCapacidadMaxima() > 10);
-
-
-        // --- 2. Lógica para el Mensaje de Acción ---
-        String estadoAccion;
-
-        if (!sistemaActivo) {
-            // A. Estado Inicial: Solo Núcleo
-            estadoAccion = "Costo Extracción: " + COSTO_EXPANSION_EXTRACCION + " EXP. ¡CLICK para construir!";
-
-        } else if (hifaEnNivelBase && nucleo.getExpAcumulada() >= 10) {
-            // B. Estado de Equilibrio: Puede pagar la mejora
-            estadoAccion = "¡EXP suficiente! Haz CLIC en la línea Hifa para MEJORAR (Costo: 10 EXP).";
-
-        } else if (hifaEnNivelBase && nucleo.getExpAcumulada() < 10) {
-            // C. Estado de Equilibrio: Aún no puede pagar la mejora
-            estadoAccion = "Sistema en Equilibrio (0 EXP/s). ¡Necesitas 10 EXP para la Mejora!";
-
-        } else if (hifaMejorada) {
-            // D. Estado de Crecimiento: Mejora aplicada
-            estadoAccion = "Sistema en CRECIMIENTO (+8 EXP/s). ¡Ahorrando EXP para tu próxima expansión!";
-
-        } else {
-            // E. Fallback (Si se pierden los casos anteriores, al menos decimos algo)
-            estadoAccion = "Sistema en funcionamiento. No hay acciones urgentes.";
-        }
-
-
-        // --- 3. Actualización final del HUD ---
-        hudText.setText(String.format(
-                "Tiempo: %d s | Salud Núcleo: %d%s\n" + // <-- Usar %s para infoYacimiento
-                        "EXP: %d | Nutrientes: %d\n" +
-                        "Gasto Mantenimiento: %d / ciclo\n" +
-                        "Estado: %s",
-                seconds,
+        // C. Formateo del Label de Estado
+        String status = String.format(
+                "Balance: %s %s%d u/s | Salud: %d/100 | EXP: %d/%d | Nutrientes: %d",
+                iconoBalance,
+                signoBalance,
+                Math.abs(balanceNeto),
                 nucleo.getSalud(),
-                infoYacimiento,
                 nucleo.getExpAcumulada(),
-                nucleo.getInventario().getOrDefault("Nutrientes", 0),
-                costoTotalMantenimiento(),
-                estadoAccion
-        ));
+                MAX_EXP_CAPACITY,
+                nucleo.getInventario().getOrDefault(recurso, 0)
+        );
+        statusLabel.setText(status);
+
+        // D. Actualización de las Barras (Si creaste las variables de campo para ellas)
+        // healthBar.setProgress(nucleo.getSalud() / 100.0);
+        // expBar.setProgress(nucleo.getExpAcumulada() / (double)MAX_EXP_CAPACITY);
     }
 
     private int costoTotalMantenimiento() {
@@ -253,60 +305,51 @@ public class MainApp extends Application {
                 .sum() + COSTO_MANTENIMIENTO_BASE_NUCLEO;
     }
 
-    // Interaccion (click para continuar)
     private void iniciarInteraccion(Scene scene) {
 
-        // --- 1. Manejador de Teclado (Requiere la Scene) ---
-        scene.setOnKeyPressed(event -> { // <-- Se usa la 'scene' recibida
-            if (event.getCode() == KeyCode.E) {
-                modoConstruccion = !modoConstruccion;
+        // --- ÚNICO MANEJADOR: Clic en el Canvas (Zona de Juego) ---
+        // El 'canvas' ahora es un campo de clase y está disponible aquí.
+        canvas.setOnMouseClicked(e -> {
 
-                String mensaje = modoConstruccion
-                        ? "Modo Construcción ACTIVO. ¡Haz clic en el mapa para colocar el Extractor!"
-                        : "Modo Construcción DESACTIVADO.";
-
-                System.out.println(mensaje);
-            }
-        });
-
-        // --- 2. Manejador de Clic (Existente) ---
-        root.setOnMouseClicked(e -> {
             Point2D clickPoint = new Point2D(e.getX(), e.getY());
-            Centro nucleo = colonia.obtenerCentro("NucleoCentral"); // Obtenemos el núcleo aquí
+            Centro nucleo = colonia.obtenerCentro("NucleoCentral");
 
-            // Lógica de Colocación de un NUEVO Extractor
+            // 1. Lógica de Colocación de un NUEVO Extractor (Activado por el botón)
             if (modoConstruccion) {
+                // Se desactiva el modo al construir, para evitar colocaciones accidentales
                 modoConstruccion = false;
                 construirCentroExtractor(e.getX(), e.getY());
+
+                // Aquí puedes llamar a una función que actualice el estilo del botón
+                // para mostrar que el modo construcción está OFF.
                 return;
             }
 
-            // Lógica de Mejora de Hifa
+            // 2. Lógica de Mejora de Hifa
             Hifa hifaClickeada = buscarHifaEnCoordenadas(clickPoint);
 
             if (hifaClickeada != null) {
-                // Verificar si el costo es válido y la Hifa no ha sido mejorada.
-                if (nucleo.getExpAcumulada() >= COSTO_MEJORA_HIFA && hifaClickeada.getCapacidadMaxima() == 10) {
+                // La lógica de verificación de EXP y mejora se mantiene, pero las alertas
+                // de terminal deben ser reemplazadas por mensajes en la UI.
 
+                if (nucleo.getExpAcumulada() >= COSTO_MEJORA_HIFA && hifaClickeada.getCapacidadMaxima() == 10) {
                     // Aplicar Mejora
                     nucleo.restarExp(COSTO_MEJORA_HIFA);
                     hifaClickeada.setCapacidadMaxima(14);
 
-                    System.out.println(" Hifa mejorada (" + hifaClickeada.getOrigenNombre() + " -> " + hifaClickeada.getDestinoNombre() + "): Capacidad 14 u/s.");
-                    dibujarGrafo(); // Redibujar para mostrar si hay cambio visual en la Hifa
+                    // Reemplazar System.out por actualización de UI/log en pantalla
+                    // Por ejemplo: mostrarMensajeUI("Hifa mejorada!");
+                    System.out.println("Hifa mejorada.");
+
+                    dibujarGrafo();
                     return;
-
                 } else if (hifaClickeada.getCapacidadMaxima() > 10) {
-                    System.out.println(" Esta Hifa ya está mejorada.");
+                    // Reemplazar System.out por actualización de UI/log en pantalla
+                    System.out.println("Esta Hifa ya está mejorada.");
                 } else {
-                    System.err.println(" EXP insuficiente para la mejora (Necesitas " + COSTO_MEJORA_HIFA + " EXP).");
+                    // Reemplazar System.err por actualización de UI/log en pantalla
+                    System.err.println("EXP insuficiente.");
                 }
-                return; // Bloquea otros clics si se manejó la Hifa
-            }
-
-            // Lógica para la CONSTRUCCIÓN INICIAL (Si aún la usas)
-            if (gameState != null && gameState.equals("WAITING_FOR_EXTRACTION_PLACEMENT")) {
-                construirCentroExtractor(e.getX(), e.getY());
             }
         });
     }
@@ -462,7 +505,7 @@ public class MainApp extends Application {
     }
 
     // Ciclo de simulacion y logica de flujo
-    private void iniciarCicloSimulacion() {
+    private void iniciarGameLoop() {
         new AnimationTimer() {
             private long lastUpdate = 0;
             private final long UPDATE_INTERVAL = 1_000_000_000L; // 1 segundo = 1 ciclo de juego
@@ -475,11 +518,13 @@ public class MainApp extends Application {
                 }
 
                 long elapsedTime = now - startTime;
+
                 if (now - lastUpdate >= UPDATE_INTERVAL) {
                     simularCiclo(elapsedTime);
                     lastUpdate = now;
                 }
-                actualizarHUD(elapsedTime);
+                dibujarGrafo();
+                actualizarHUD();
             }
         }.start();
     }
@@ -543,7 +588,6 @@ public class MainApp extends Application {
 
         // E. Fase Final y Actualización
         manejarFinDeJuego(nucleo);
-        vistasDeCentros.values().forEach(CentroView::actualizarVisualizacion);
     }
 
     private void manejarPenalizacionPorDeficitInicial(Centro nucleo, long elapsedTime) {
@@ -679,33 +723,42 @@ public class MainApp extends Application {
 
     // --- 5. ANIMACIÓN DE FLUJO ---
     private void actualizarFlujoVisual(String s, String t, int flujo, String recurso) {
-        CentroView origenView = vistasDeCentros.get(s);
-        CentroView destinoView = vistasDeCentros.get(t);
+        // 1. Obtener las coordenadas del centro
+        Point2D coordOrigen = coordenadasDeCentros.get(s);
+        Point2D coordDestino = coordenadasDeCentros.get(t);
 
-        if (origenView != null && destinoView != null && flujo > 0) {
+        if (coordOrigen != null && coordDestino != null && flujo > 0) {
             Color colorRecurso = recurso.equals("Nutrientes") ? Color.YELLOW : Color.CYAN;
-            animarFlujo(origenView, destinoView, flujo, colorRecurso);
+            // 2. Pasar las coordenadas directamente a la animación
+            animarFlujo(coordOrigen, coordDestino, flujo, colorRecurso);
         }
     }
 
-    private void animarFlujo(CentroView origenView, CentroView destinoView, int flujoReal, Color color) {
+    private void animarFlujo(Point2D coordOrigen, Point2D coordDestino, int flujoReal, Color color) {
         // Lógica de animación para mostrar el flujo entre nodos
-        int numParticulas = Math.min(flujoReal, 10); // Máx 10 para evitar sobrecarga visual
+        int numParticulas = Math.min(flujoReal, 10);
 
-        Line path = new Line(origenView.getCenterX(), origenView.getCenterY(),
-                destinoView.getCenterX(), destinoView.getCenterY());
+        // El Path usa las coordenadas de los centros
+        Line path = new Line(coordOrigen.getX(), coordOrigen.getY(),
+                coordDestino.getX(), coordDestino.getY());
 
         for (int i = 0; i < numParticulas; i++) {
             FlujoParticle particle = new FlujoParticle(color);
             Duration delay = Duration.millis(i * 100);
 
+            double radius = particle.getRadius();
+            particle.setTranslateX(-radius);
+            particle.setTranslateY(-radius);
+
             PathTransition pt = new PathTransition(Duration.seconds(1.0), path, particle);
             pt.setDelay(delay);
             pt.setCycleCount(1);
 
-            pt.setOnFinished(e -> root.getChildren().remove(particle));
+            // La partícula se remueve del Pane de Animación al terminar
+            pt.setOnFinished(e -> animationPane.getChildren().remove(particle));
 
-            root.getChildren().add(particle);
+            // La partícula se añade al Pane de Animación, no al root.
+            animationPane.getChildren().add(particle);
             pt.play();
         }
     }
