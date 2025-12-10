@@ -14,7 +14,6 @@ public class Nodo {
     // --- 2. Propiedades de la Jugabilidad (Variables) ---
     private double salud; // Puntos de salud actuales (Máx: TipoNodo.getSaludBase())
     private double nivelInfeccion; // 0.0 a 1.0 (cuán infectado está)
-    private double recursosAlmacenados; // Para nodos de TipoNodo.ALMACENAMIENTO y NUCLEO
     private boolean esBacteriaCompletada = false;
 
     // Propiedades Específicas del Tipo
@@ -29,7 +28,6 @@ public class Nodo {
 
         // Inicialización basada en el Enum
         this.salud = tipo.getSaludBase();
-        this.recursosAlmacenados = 0.0;
         this.nivelInfeccion = 0.0;
         this.tasaProduccion = tasaProduccion; // Puede variar dependiendo del nivel de upgrade
     }
@@ -100,17 +98,6 @@ public class Nodo {
 
     public void setSalud(double salud) {
         this.salud = salud;
-    }
-
-    // Metodo para manejar almacenamiento de recursos (solo si es almacenamiento o nucleo)
-    public double almacenarNutrientes(double cantidad) {
-        if (tipo == TipoNodo.NUCLEO || tipo == TipoNodo.ALMACENAMIENTO) {
-            double capacidadDisponible = getCapacidadMaxima() - this.recursosAlmacenados;
-            double aAlmacenar = Math.min(cantidad, capacidadDisponible);
-            this.recursosAlmacenados += aAlmacenar;
-            return cantidad - aAlmacenar; // Devuelve el sobrante
-        }
-        return cantidad; // Si no tiene capacidad, devuelve el sobrante
     }
 
     //Implementacion del metodo equals y hashCode es crucial para usar Mapas y Sets con nodos

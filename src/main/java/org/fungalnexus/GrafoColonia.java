@@ -121,25 +121,27 @@ public class GrafoColonia {
 
     public void actualizarRecursos() {
         double extraccionNeta = 0.0;
-        double produccionDefensaNeta = 0.0;
+        double produccionDefensaNeta = 0.0; // Lo mantenemos por claridad
 
         for (Nodo nodo : nodosColonia) {
-            if (nodo.getSalud() > 0) { // Solo si el nodo está vivo
+            if (nodo.getSalud() > 0) {
                 if (nodo.getTipo() == TipoNodo.EXTRACTOR) {
-                    // Sumar la extracción
                     extraccionNeta += nodo.getTasaProduccion();
                 } else if (nodo.getTipo() == TipoNodo.DEFENSA) {
-                    // Sumar la producción de defensas
-                    produccionDefensaNeta += nodo.getTasaProduccion();
+                    produccionDefensaNeta += nodo.getTasaProduccion(); // Asumiendo que getTasaProduccion es la tasa de defensa
                 }
             }
         }
 
-        // Aplicar la extracción hasta el límite de capacidad
+        // APLICAR LÍMITE GLOBAL
         double nuevoTotal = this.nutrientesTotales + extraccionNeta;
         this.nutrientesTotales = Math.min(nuevoTotal, this.capacidadNutrienteTotal);
 
-        // Las defensas no deberían tener un límite estricto de almacenamiento, solo de uso.
+        // Si hubo exceso, puedes imprimir un mensaje:
+        if (nuevoTotal > this.capacidadNutrienteTotal) {
+            System.out.println("Almacenamiento lleno. Exceso de " + (nuevoTotal - this.capacidadNutrienteTotal) + " perdido.");
+        }
+
         this.defensasTotales += produccionDefensaNeta;
     }
 
