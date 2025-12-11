@@ -8,7 +8,8 @@ public class Nodo {
     // --- 1. Propiedades del Grafo (Fijas) ---
     private final int x; // Coordenada X en el grid
     private final int y; // Coordenada Y en el grid
-    private final TipoNodo tipo;
+    private TipoNodo tipo;
+    private TipoNodo tipoOriginal;
     private final List<Nodo> vecinos; // Lista de Nodos adyacentes (Hifas)
 
     // --- 2. Propiedades de la Jugabilidad (Variables) ---
@@ -17,14 +18,18 @@ public class Nodo {
     private boolean esBacteriaCompletada = false;
 
     // Propiedades Específicas del Tipo
-    private double tasaProduccion; // Tasa de extracción (si es EXTRACTOR) o tasa de defensa (si es DEFENSA)
+    private double tasaProduccion;
+    private double radio;
+
 
     // --- Constructor ---
-    public Nodo(int x, int y, TipoNodo tipo, double tasaProduccion) {
+    public Nodo(int x, int y, double radioInicial, TipoNodo tipo, double tasaProduccion) {
         this.x = x;
         this.y = y;
         this.tipo = tipo;
+        this.tipoOriginal = tipo;
         this.vecinos = new ArrayList<>();
+        this.radio = radioInicial;
 
         // Inicialización basada en el Enum
         this.salud = tipo.getSaludBase();
@@ -62,8 +67,16 @@ public class Nodo {
         return y;
     }
 
+    public double getRadio() {
+        return radio;
+    }
+
     public TipoNodo getTipo() {
         return tipo;
+    }
+
+    public TipoNodo getTipoOriginal() {
+        return tipoOriginal;
     }
 
     public List<Nodo> getVecinos() {
@@ -76,10 +89,6 @@ public class Nodo {
 
     public double getNivelInfeccion() {
         return nivelInfeccion;
-    }
-
-    public double getCapacidadMaxima() {
-        return tipo.getCapacidadNutriente();
     }
 
     public double getTasaProduccion() {

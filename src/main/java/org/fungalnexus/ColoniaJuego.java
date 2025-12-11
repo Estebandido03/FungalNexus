@@ -19,6 +19,9 @@ public class ColoniaJuego extends Application {
     private Label lblDefensas;
     private Label lblSaludNucleo;
 
+    private int ciclosTranscurridos = 0;
+    private final int cicloDeInfeccionInicial = Configuracion.CICLO_GRACIA_INICIAL;
+
     @Override
     public void start(Stage primaryStage) {
 
@@ -47,7 +50,7 @@ public class ColoniaJuego extends Application {
         root.setBottom(controlPanel);
 
         Scene scene = new Scene(root, Configuracion.MAPA_WIDTH, Configuracion.MAPA_HEIGHT + 50);
-        primaryStage.setTitle("Fungus Nexus");
+        primaryStage.setTitle("Fungal Nexus");
         primaryStage.setScene(scene);
         primaryStage.show();
 
@@ -109,7 +112,7 @@ public class ColoniaJuego extends Application {
 
         // Usar %.0f para la capacidad (que es double en el modelo)
         if (nutrientes >= capacidad * 0.95 && capacidad > 0) {
-            lblNutrientes.setText(String.format("Nutrientes: %.1f / %.0f (¡Lleno!)", nutrientes, capacidad));
+            lblNutrientes.setText(String.format("Nutrientes: %.1f / %.0f (Lleno)", nutrientes, capacidad));
             lblNutrientes.setStyle("-fx-text-fill: yellow; -fx-font-size: 14px;");
         } else {
             lblNutrientes.setText(String.format("Nutrientes: %.1f / %.0f", nutrientes, capacidad));
@@ -129,8 +132,6 @@ public class ColoniaJuego extends Application {
         new AnimationTimer() {
             private long lastUpdate = 0;
             private final long updateInterval = 1_000_000_000; // 1 segundo en nanosegundos
-            private int ciclosTranscurridos = 0;
-            private final int cicloDeInfeccionInicial = 45;
 
             @Override
             public void handle(long now) {
@@ -139,6 +140,8 @@ public class ColoniaJuego extends Application {
                 if (grafoColonia.isGameOver()) {
                     this.stop();
                     System.out.println("¡Juego Detenido! (AnimationTimer Stop)");
+                    panelJuego.detenerCronometro();
+                    panelJuego.mostrarPantallaGameOver();
                     return;
                 }
 
@@ -149,14 +152,15 @@ public class ColoniaJuego extends Application {
                     grafoColonia.actualizarRecursos();
 
                     // Lógica de inicio de infección
-                    if (ciclosTranscurridos >= cicloDeInfeccionInicial && grafoColonia.getNodosInfectados().isEmpty()) {
+                    if (ciclosTranscurridos >= cicloDeInfeccionInicial) {
                         grafoColonia.iniciarPrimeraInfeccion();
                     }
 
                     grafoColonia.actualizarInfeccionYCombate(
                             Configuracion.FACTOR_PROPAGACION_BACTERIA,
                             Configuracion.DANO_BACTERIA_POR_CICLO,
-                            Configuracion.COSTO_DEFENSA_POR_COMBATE
+                            Configuracion.COSTO_DEFENSA_POR_COMBATE,
+                            ciclosTranscurridos
                     );
 
                     // Actualizar la interfaz de usuario que no requiere 60 FPS

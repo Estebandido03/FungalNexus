@@ -19,9 +19,14 @@ public class GrafoColonia {
     // --- Estado de la Amenaza ---
     private final List<Nodo> nodosInfectados;
 
+    private boolean infeccionInicialActivada = false;
+
     private PanelJuegoFX panelJuegoFX;
 
     private boolean gameOver = false;
+
+    private int contadorPropagacion = 0;
+    private final int FRECUENCIA_PROPAGACION = 5;
 
     // --- Constructor ---
     public GrafoColonia(int nucleoX, int nucleoY, PanelJuegoFX panelJuegoFX) {
@@ -29,10 +34,10 @@ public class GrafoColonia {
         this.nodosInfectados = new ArrayList<>();
 
         // Inicialización del Núcleo (asumimos tasa de producción 0, ya que solo almacena)
-        this.nucleo = new Nodo(nucleoX, nucleoY, TipoNodo.NUCLEO, TipoNodo.NUCLEO.getTasaProduccion());
+        this.nucleo = new Nodo(nucleoX, nucleoY, Configuracion.RADIO_NUCLEO_INICIAL, TipoNodo.NUCLEO, TipoNodo.NUCLEO.getTasaProduccion());
 
         // Inicialización de recursos y capacidad
-        this.nutrientesTotales = 450;
+        this.nutrientesTotales = 100.0;
         this.defensasTotales = 0.0;
 
         this.panelJuegoFX = panelJuegoFX;
@@ -54,10 +59,6 @@ public class GrafoColonia {
 
     public double getDefensasTotales() {
         return defensasTotales;
-    }
-
-    public void setPanelJuegoFX(PanelJuegoFX panelJuegoFX) {
-        this.panelJuegoFX = panelJuegoFX;
     }
 
     public void agregarNodo(Nodo nodo) {
@@ -92,7 +93,7 @@ public class GrafoColonia {
             return null;
         }
 
-        Nodo nuevoNodo = new Nodo(x, y, tipo, tasa);
+        Nodo nuevoNodo = new Nodo(x, y, Configuracion.RADIO_NODO_ESTANDAR, tipo, tasa);
 
         this.nutrientesTotales -= costoNutrientes;
         agregarNodo(nuevoNodo);
@@ -221,18 +222,26 @@ public class GrafoColonia {
         for (Nodo nodo : nodosColonia) {
             if (nodo.getSalud() > 0) {
                 if (nodo.getTipo() == TipoNodo.EXTRACTOR) {
-                    extraccionNeta += nodo.getTasaProduccion();
 
-                    if (panelJuegoFX != null) {
-                        List<Nodo> rutaRecorrido = encontrarRutaAlNucleo(nodo);
-                        if (rutaRecorrido != null && rutaRecorrido.size() > 1) {
-                            panelJuegoFX.crearParticula(
-                                    nodo.getX(), nodo.getY(),
-                                    rutaRecorrido,
-                                    TipoRecurso.NUTRIENTE
-                            );
+                    // **LÓGICA DE PAUSA: SOLO EXTRAER SI HAY ESPACIO**
+                    if (this.nutrientesTotales < this.capacidadNutrienteTotal) {
+
+                        // 1. EXTRAER (SOLO si no está lleno)
+                        extraccionNeta += nodo.getTasaProduccion();
+
+                        // 2. CREAR PARTÍCULA (SOLO si no está lleno)
+                        if (panelJuegoFX != null) {
+                            List<Nodo> rutaRecorrido = encontrarRutaAlNucleo(nodo);
+                            if (rutaRecorrido != null && rutaRecorrido.size() > 1) {
+                                panelJuegoFX.crearParticula(
+                                        nodo.getX(), nodo.getY(),
+                                        rutaRecorrido,
+                                        TipoRecurso.NUTRIENTE
+                                );
+                            }
                         }
                     }
+                    // Ya no hay 'else' ni código fuera de este 'if' para los extractores
                 } else if (nodo.getTipo() == TipoNodo.DEFENSA) {
                     produccionDefensaNeta += nodo.getTasaDefensa();
                 }
@@ -252,8 +261,15 @@ public class GrafoColonia {
 
     }
 
-    public void actualizarInfeccionYCombate(double factorPropagacion, double factorDano, double costoDefensa) {
+    public void actualizarInfeccionYCombate(
+            double factorPropagacion,
+            double factorDano,
+            double costoDefensa,
+            int ciclosTranscurridos // <--- ¡Añadido!
+    ) {
         if (gameOver) return;
+        contadorPropagacion++;
+        boolean esMomentoDePropagar = (contadorPropagacion >= FRECUENCIA_PROPAGACION);
         Set<Nodo> nuevosInfectados = new HashSet<>();
 
         for (Nodo nodoInfectado : nodosInfectados) {
@@ -266,7 +282,9 @@ public class GrafoColonia {
             if (!nodoInfectado.esBacteriaCompletada() && this.defensasTotales >= costoDefensa) {
 
                 this.defensasTotales -= costoDefensa;
-                nodoInfectado.setNivelInfeccion(Math.max(0, nodoInfectado.getNivelInfeccion() - 0.1));
+                nodoInfectado.setNivelInfeccion(
+                        Math.max(0, nodoInfectado.getNivelInfeccion() - Configuracion.TASA_SANACION_INFECCION)
+                );
 
                 if (panelJuegoFX != null) {
 
@@ -302,7 +320,6 @@ public class GrafoColonia {
                     }
                 }
             }
-
             // 3. Lógica de Transformación:
             if (nodoInfectado.getSalud() <= 0 && !nodoInfectado.esBacteriaCompletada()) {
                 nodoInfectado.setEsBacteriaCompletada(true);
@@ -318,11 +335,47 @@ public class GrafoColonia {
 
             // 4. Propagación de la Bacteria
             // La propagación ocurre si el nodo está infectado Y si es una Bacteria COMPLETADA
-            if (nodoInfectado.esBacteriaCompletada() || Math.random() < factorPropagacion) {
-
+            if (nodoInfectado.esBacteriaCompletada() || (esMomentoDePropagar && Math.random() < factorPropagacion)) {
                 for (Nodo vecino : nodoInfectado.getVecinos()) {
                     if (vecino.getNivelInfeccion() == 0 && !vecino.esBacteriaCompletada()) {
                         nuevosInfectados.add(vecino);
+                    }
+                }
+            }
+
+            if (esMomentoDePropagar) {
+                contadorPropagacion = 0; // Resetear el contador para el siguiente ciclo de 5 segundos
+            }
+        }
+
+        if (ciclosTranscurridos >= Configuracion.CICLO_GRACIA_INICIAL) {
+            for (Nodo nodo : nodosColonia) {
+
+                if (nodo.getTipo() == TipoNodo.NUCLEO) {
+                    continue;
+                }
+
+                if (nodo.getNivelInfeccion() == 0 && !nodo.esBacteriaCompletada()) {
+
+                    // B. IDENTIFICAR NODO EXTERIOR: Solo infecta nodos que tengan exactamente 1 vecino (en la periferia).
+                    // Si tienes nodos de inicio que tienen más de 1 vecino, ajusta esta condición.
+                    if (nodo.getVecinos().size() == 1) {
+
+                        // C. Aplicar la probabilidad de infección aleatoria
+                        if (Math.random() < Configuracion.PROBABILIDAD_INFECCION_EXTERNA) {
+
+                            // 1. Aplicar la infección inicial
+                            nodo.setNivelInfeccion(0.1);
+
+                            // 2. Añadir a la lista de seguimiento para que entre en combate/propagación en el siguiente tick
+                            nodosInfectados.add(nodo);
+
+                            System.out.println("> INFECCIÓN EXTERNA detectada en nodo "
+                                    + nodo.getTipo() + " en (" + nodo.getX() + ", " + nodo.getY() + ")");
+
+                            // Ya encontramos un nuevo foco de infección. Podemos salir del bucle.
+                            break;
+                        }
                     }
                 }
             }
@@ -353,6 +406,10 @@ public class GrafoColonia {
     }
 
     public void iniciarPrimeraInfeccion() {
+
+        if (infeccionInicialActivada) {
+            return;
+        }
         // Solo iniciamos si no hay infecciones activas
         if (!nodosInfectados.isEmpty()) {
             return;
@@ -383,6 +440,8 @@ public class GrafoColonia {
         // 4. Aplicar la infección y añadirlo a la lista de seguimiento
         nodoInicial.setNivelInfeccion(0.1);
         nodosInfectados.add(nodoInicial);
+
+        this.infeccionInicialActivada = true;
     }
 
     //Devuelve la lista actual de nodos que se encuentran infectados por bacterias.

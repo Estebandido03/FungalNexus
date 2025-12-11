@@ -2,9 +2,9 @@ package org.fungalnexus;
 
 public enum TipoNodo {
     NUCLEO (100.0,100.0,0.0,0.0,0.0),
-    EXTRACTOR (150.0,0.0,75.0,5.0,0.0),
+    EXTRACTOR (85.0,0.0,75.0,4.0,0.0),
     ALMACENAMIENTO (75.0,50.0,100.0,0.0,0.0),
-    DEFENSA (60.0,0.0,100.0,0.0,5.0);
+    DEFENSA (60.0,0.0,100.0,0.0,1.0);
 
     // Propiedades internas del Enum
     private final double saludBase;
