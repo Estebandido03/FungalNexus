@@ -11,16 +11,19 @@ import java.util.*;
 
 public class PanelJuegoFX extends Pane {
 
-    private final GrafoColonia grafoColonia;
+    private GrafoColonia grafoColonia;
     private final ConstruccionManager construccionManager;
     private final Circle ghostPreview; // El objeto visual fantasma
 
     private final Map<Nodo, Circle> nodoToCircleMap = new HashMap<>();
     private final Map<Nodo, List<Line>> nodoToHifasMap = new HashMap<>();
 
+    private final List<ParticulaRecurso> particulasActivas;
+
     public PanelJuegoFX(GrafoColonia grafoColonia, ConstruccionManager construccionManager) {
         this.grafoColonia = grafoColonia;
         this.construccionManager = construccionManager;
+        this.particulasActivas = new ArrayList<>();
 
         // Configuración inicial del Pane
         this.setPrefSize(Configuracion.MAPA_WIDTH, Configuracion.MAPA_HEIGHT);
@@ -34,8 +37,20 @@ public class PanelJuegoFX extends Pane {
         this.setOnMouseMoved(this::handleMouseMoved);
         this.setOnMouseClicked(this::handleMouseClicked);
 
+    }
+
+    public void setGrafoColonia(GrafoColonia grafoColonia) {
+        this.grafoColonia = grafoColonia;
         // Dibujar el estado inicial (solo el núcleo)
         dibujarColoniaInicial();
+    }
+
+    public void crearParticula(double startX, double startY, List<Nodo> ruta, TipoRecurso tipo) {
+        if (ruta == null || ruta.size() < 2) return; // Asegurar que haya una ruta válida
+
+        ParticulaRecurso particula = new ParticulaRecurso(startX, startY, ruta, tipo);
+        particulasActivas.add(particula);
+        this.getChildren().add(particula);
     }
 
     private Circle crearGhostPreview() {
@@ -185,16 +200,24 @@ public class PanelJuegoFX extends Pane {
 
                 circle.setRadius(Configuracion.NODO_RADIO); // Restaurar tamaño normal
 
-                // Opcional: Si el nodo está infectado (nivelInfeccion > 0),
-                // haz un pequeño pulso visual para alertar al jugador
                 if (nivelInfeccion > 0) {
-                    circle.setOpacity(0.6 + Math.abs(Math.sin(System.currentTimeMillis() / 100.0)) * 0.4);
+                    circle.setOpacity(0.4 + Math.abs(Math.sin(System.currentTimeMillis() / 250.0)) * 0.4);
                 } else {
                     circle.setOpacity(1.0);
                 }
             }
 
             circle.setFill(colorFinal);
+        }
+
+        Iterator<ParticulaRecurso> iterator = particulasActivas.iterator();
+        while (iterator.hasNext()) {
+            ParticulaRecurso particula = iterator.next();
+            if (particula.mover()) {
+                // La partícula ha llegado a su destino
+                this.getChildren().remove(particula); // Remover visualmente
+                iterator.remove(); // Remover de la lista activa
+            }
         }
     }
 }

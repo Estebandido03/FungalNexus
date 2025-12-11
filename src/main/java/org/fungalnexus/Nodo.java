@@ -86,6 +86,10 @@ public class Nodo {
         return tasaProduccion;
     }
 
+    public double getTasaDefensa() {
+        return this.tasaProduccion;
+    }
+
     // --- Setters / Lógica del Juego ---
 
     public void recibirDano(double dano) {

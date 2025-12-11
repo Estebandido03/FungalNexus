@@ -19,10 +19,12 @@ public class GrafoColonia {
     // --- Estado de la Amenaza ---
     private final List<Nodo> nodosInfectados;
 
+    private PanelJuegoFX panelJuegoFX;
+
     private boolean gameOver = false;
 
     // --- Constructor ---
-    public GrafoColonia(int nucleoX, int nucleoY) {
+    public GrafoColonia(int nucleoX, int nucleoY, PanelJuegoFX panelJuegoFX) {
         this.nodosColonia = new HashSet<>();
         this.nodosInfectados = new ArrayList<>();
 
@@ -32,6 +34,8 @@ public class GrafoColonia {
         // Inicialización de recursos y capacidad
         this.nutrientesTotales = 450;
         this.defensasTotales = 0.0;
+
+        this.panelJuegoFX = panelJuegoFX;
 
         // El núcleo proporciona la capacidad base
         this.capacidadNutrienteTotal = TipoNodo.NUCLEO.getCapacidadNutriente();
@@ -50,6 +54,10 @@ public class GrafoColonia {
 
     public double getDefensasTotales() {
         return defensasTotales;
+    }
+
+    public void setPanelJuegoFX(PanelJuegoFX panelJuegoFX) {
+        this.panelJuegoFX = panelJuegoFX;
     }
 
     public void agregarNodo(Nodo nodo) {
@@ -109,6 +117,47 @@ public class GrafoColonia {
         return masCercano;
     }
 
+    /**
+     * Encuentra la ruta más corta desde el nodo inicial hasta el Núcleo usando BFS.
+     * @param inicio El nodo extractor de origen.
+     * @return Una lista de nodos que forman la ruta, incluyendo el inicio y el núcleo, o null si no hay ruta.
+     */
+    public List<Nodo> encontrarRutaAlNucleo(Nodo inicio) {
+        if (inicio == nucleo) return List.of(nucleo);
+
+        // Almacena el nodo previo en la ruta para reconstruirla
+        Map<Nodo, Nodo> padres = new HashMap<>();
+        Queue<Nodo> cola = new LinkedList<>();
+        Set<Nodo> visitados = new HashSet<>();
+
+        cola.add(inicio);
+        visitados.add(inicio);
+
+        while (!cola.isEmpty()) {
+            Nodo actual = cola.poll();
+
+            if (actual == nucleo) {
+                // Reconstruir y retornar la ruta
+                List<Nodo> ruta = new LinkedList<>();
+                Nodo paso = nucleo;
+                while (paso != null) {
+                    ruta.add(0, paso); // Añadir al inicio para invertir la ruta
+                    paso = padres.get(paso);
+                }
+                return ruta;
+            }
+
+            for (Nodo vecino : actual.getVecinos()) {
+                if (!visitados.contains(vecino)) {
+                    visitados.add(vecino);
+                    padres.put(vecino, actual);
+                    cola.add(vecino);
+                }
+            }
+        }
+        return null; // No se encontró ruta
+    }
+
     // Recalcula la capacidad de almacenamiento global sumando la capacidad de todos los nodos.
     private void recalcularCapacidadTotal() {
         this.capacidadNutrienteTotal = 0;
@@ -127,7 +176,22 @@ public class GrafoColonia {
             if (nodo.getSalud() > 0) {
                 if (nodo.getTipo() == TipoNodo.EXTRACTOR) {
                     extraccionNeta += nodo.getTasaProduccion();
+
+                    if (panelJuegoFX != null) {
+
+                        List<Nodo> rutaRecorrido = encontrarRutaAlNucleo(nodo);
+                        // El destino será el núcleo
+                        if (rutaRecorrido != null && rutaRecorrido.size() > 1) {
+                            // pasamos la ruta completa
+                            panelJuegoFX.crearParticula(
+                                    nodo.getX(), nodo.getY(),
+                                    rutaRecorrido, // Pasamos la ruta
+                                    TipoRecurso.NUTRIENTE
+                            );
+                        }
+                    }
                 } else if (nodo.getTipo() == TipoNodo.DEFENSA) {
+                    this.defensasTotales += nodo.getTasaDefensa();
                     produccionDefensaNeta += nodo.getTasaProduccion(); // Asumiendo que getTasaProduccion es la tasa de defensa
                 }
             }
@@ -159,7 +223,30 @@ public class GrafoColonia {
             // 2. Intentar Sanar / Contener (solo si aún no está transformado)
             if (!nodoInfectado.esBacteriaCompletada() && this.defensasTotales >= costoDefensa) {
                 this.defensasTotales -= costoDefensa;
-                nodoInfectado.setNivelInfeccion(Math.max(0, nodoInfectado.getNivelInfeccion() - 0.1)); // Reduce infección
+                nodoInfectado.setNivelInfeccion(Math.max(0, nodoInfectado.getNivelInfeccion() - 0.1));
+                // **GENERAR PARTÍCULA DE DEFENSA** (desde el Núcleo hacia el nodo infectado)
+                if (panelJuegoFX != null) {
+
+                    List<Nodo> rutaInversa = encontrarRutaAlNucleo(nodoInfectado);
+
+                    if (rutaInversa != null && rutaInversa.size() > 1) {
+
+                        // 2. Invertir la ruta: Convierte a [Nucleo, ..., Infectado]
+                        // Necesitas importar java.util.Collections
+                        List<Nodo> rutaDefensa = new ArrayList<>(rutaInversa);
+                        Collections.reverse(rutaDefensa);
+
+                        // El origen es el primer nodo de la ruta (el Núcleo)
+                        Nodo origen = rutaDefensa.get(0);
+
+                        // 3. Llamar al nuevo metodo de creación de partículas
+                        panelJuegoFX.crearParticula(
+                                origen.getX(), origen.getY(), // Coordenadas del Núcleo
+                                rutaDefensa, // La ruta completa desde el Núcleo hasta el infectado
+                                TipoRecurso.DEFENSA
+                        );
+                    }
+                }
             }
 
             // 3. Lógica de Transformación:
@@ -228,8 +315,6 @@ public class GrafoColonia {
         // 2. Verificar si hay nodos para infectar
         if (candidatos.isEmpty()) {
             // La colonia aún no se ha expandido, la infección debe esperar.
-            // Podríamos decidir infectar el núcleo si el tiempo de gracia se agota mucho,
-            // pero por ahora, solo espera.
             return;
         }
 

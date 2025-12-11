@@ -29,14 +29,17 @@ public class ColoniaJuego extends Application {
         int nucleoX = ((centroX / Configuracion.GRID_SIZE) * Configuracion.GRID_SIZE) + Configuracion.GRID_SIZE / 2;
         int nucleoY = ((centroY / Configuracion.GRID_SIZE) * Configuracion.GRID_SIZE) + Configuracion.GRID_SIZE / 2;
 
-        this.grafoColonia = new GrafoColonia(nucleoX, nucleoY);
         this.construccionManager = new ConstruccionManager();
+
+        this.panelJuego = new PanelJuegoFX(null, construccionManager);
+
+        this.grafoColonia = new GrafoColonia(nucleoX, nucleoY, panelJuego);
+
+        this.panelJuego.setGrafoColonia(grafoColonia);
 
         // Configuración de la Interfaz
         BorderPane root = new BorderPane();
 
-        // Panel Central del Juego
-        this.panelJuego = new PanelJuegoFX(grafoColonia, construccionManager);
         root.setCenter(panelJuego);
 
         // Panel de Control (UI)
@@ -44,7 +47,7 @@ public class ColoniaJuego extends Application {
         root.setBottom(controlPanel);
 
         Scene scene = new Scene(root, Configuracion.MAPA_WIDTH, Configuracion.MAPA_HEIGHT + 50);
-        primaryStage.setTitle("Gestión de Micelio");
+        primaryStage.setTitle("Fungus Nexus");
         primaryStage.setScene(scene);
         primaryStage.show();
 
@@ -126,22 +129,26 @@ public class ColoniaJuego extends Application {
         new AnimationTimer() {
             private long lastUpdate = 0;
             private final long updateInterval = 1_000_000_000; // 1 segundo en nanosegundos
-            private int ciclosTranscurridos = 0; // NUEVO: Contador de ciclos
-            private final int cicloDeInfeccionInicial = 45; // Iniciar después de 10 segundos
+            private int ciclosTranscurridos = 0;
+            private final int cicloDeInfeccionInicial = 45;
 
             @Override
             public void handle(long now) {
+
+                // Si el juego ha terminado, detenemos el juego
                 if (grafoColonia.isGameOver()) {
-                    this.stop(); // Detiene el bucle de juego
+                    this.stop();
                     System.out.println("¡Juego Detenido! (AnimationTimer Stop)");
                     return;
                 }
 
+                // --- LÓGICA DE JUEGO (LENTA: 1 FPS) ---
                 if (now - lastUpdate >= updateInterval) {
 
-                    // --- 1. Lógica del Modelo ---
+                    // 1. Lógica del Modelo (Recursos, Combate, etc.)
                     grafoColonia.actualizarRecursos();
 
+                    // Lógica de inicio de infección
                     if (ciclosTranscurridos >= cicloDeInfeccionInicial && grafoColonia.getNodosInfectados().isEmpty()) {
                         grafoColonia.iniciarPrimeraInfeccion();
                     }
@@ -152,13 +159,16 @@ public class ColoniaJuego extends Application {
                             Configuracion.COSTO_DEFENSA_POR_COMBATE
                     );
 
-                    // --- 2. Actualización de la Vista ---
-                    panelJuego.actualizarVista();
+                    // Actualizar la interfaz de usuario que no requiere 60 FPS
                     actualizarEtiquetasUI();
                     ciclosTranscurridos++;
-
                     lastUpdate = now;
                 }
+
+                // --- MOVIMIENTO Y DIBUJO (RÁPIDO: 60 FPS) ---
+                // El movimiento de partículas está en actualizarVista().
+                // Se llama en CADA frame, independientemente de la lógica de 1 segundo.
+                panelJuego.actualizarVista();
             }
         }.start();
     }
