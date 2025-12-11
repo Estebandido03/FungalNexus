@@ -12,7 +12,7 @@ public final class Configuracion {
 
     // --- Configuración de Juego/Balance ---
     public static final double FACTOR_PROPAGACION_BACTERIA = 0.004; // Probabilidad de propagación por ciclo
-    public static final double DANO_BACTERIA_POR_CICLO = 2.0; // Daño al nodo infectado
+    public static final double DANO_BACTERIA_POR_CICLO = 4.0; // Daño al nodo infectado
     public static final double COSTO_DEFENSA_POR_COMBATE = 10.0; // Cuántas defensas se consumen para curar
 
     private Configuracion() {

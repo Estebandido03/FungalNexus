@@ -15,6 +15,7 @@ public class GrafoColonia {
 
     // Capacidad: Se recalcula cada vez que se construye o destruye un nodo ALMACENAMIENTO.
     private double capacidadNutrienteTotal;
+    private double LIMITE_DEFENSA = 100.0;
 
     // --- Estado de la Amenaza ---
     private final List<Nodo> nodosInfectados;
@@ -117,6 +118,52 @@ public class GrafoColonia {
         return masCercano;
     }
 
+    public List<Nodo> encontrarRutaDesdeTipo(Nodo destino, TipoNodo tipoBuscado) {
+        Map<Nodo, Nodo> padres = new HashMap<>();
+        Queue<Nodo> cola = new LinkedList<>();
+        Set<Nodo> visitados = new HashSet<>();
+        Nodo nodoOrigenEncontrado = null;
+
+        // Empezamos la búsqueda desde el destino (el nodo infectado)
+        cola.add(destino);
+        visitados.add(destino);
+
+        while (!cola.isEmpty()) {
+            Nodo actual = cola.poll();
+
+            // Condición de parada: Encontrar el nodo DEFENSA más cercano y activo
+            if (actual.getTipo() == tipoBuscado && actual.getSalud() > 0) {
+                nodoOrigenEncontrado = actual;
+                break;
+            }
+
+            // Si es el núcleo, podría ser una fuente de emergencia, pero
+            // por ahora solo buscamos nodos DEFENSA.
+
+            for (Nodo vecino : actual.getVecinos()) {
+                if (!visitados.contains(vecino)) {
+                    visitados.add(vecino);
+                    padres.put(vecino, actual);
+                    cola.add(vecino);
+                }
+            }
+        }
+
+        if (nodoOrigenEncontrado == null) return null;
+
+        // Reconstruir la ruta al revés
+        List<Nodo> ruta = new LinkedList<>();
+        Nodo paso = destino;
+        while (paso != null && padres.containsKey(paso)) {
+            ruta.add(0, paso); // Agrega al inicio
+            paso = padres.get(paso);
+        }
+        // Añadir el nodo DEFENSA encontrado como punto de partida
+        ruta.add(0, nodoOrigenEncontrado);
+
+        return ruta;
+    }
+
     /**
      * Encuentra la ruta más corta desde el nodo inicial hasta el Núcleo usando BFS.
      * @param inicio El nodo extractor de origen.
@@ -177,6 +224,7 @@ public class GrafoColonia {
                 if (nodo.getTipo() == TipoNodo.EXTRACTOR) {
                     extraccionNeta += nodo.getTasaProduccion();
 
+
                     if (panelJuegoFX != null) {
 
                         List<Nodo> rutaRecorrido = encontrarRutaAlNucleo(nodo);
@@ -206,7 +254,9 @@ public class GrafoColonia {
             System.out.println("Almacenamiento lleno. Exceso de " + (nuevoTotal - this.capacidadNutrienteTotal) + " perdido.");
         }
 
-        this.defensasTotales += produccionDefensaNeta;
+        double nuevoTotalDefensa = this.defensasTotales + produccionDefensaNeta;
+        this.defensasTotales = Math.min(nuevoTotalDefensa, LIMITE_DEFENSA);
+
     }
 
     public void actualizarInfeccionYCombate(double factorPropagacion, double factorDano, double costoDefensa) {
@@ -225,26 +275,44 @@ public class GrafoColonia {
                 this.defensasTotales -= costoDefensa;
                 nodoInfectado.setNivelInfeccion(Math.max(0, nodoInfectado.getNivelInfeccion() - 0.1));
                 // **GENERAR PARTÍCULA DE DEFENSA** (desde el Núcleo hacia el nodo infectado)
-                if (panelJuegoFX != null) {
+                if (!nodoInfectado.esBacteriaCompletada() && this.defensasTotales >= costoDefensa) {
+                    this.defensasTotales -= costoDefensa;
+                    nodoInfectado.setNivelInfeccion(Math.max(0, nodoInfectado.getNivelInfeccion() - 0.1));
 
-                    List<Nodo> rutaInversa = encontrarRutaAlNucleo(nodoInfectado);
+                    // **GENERAR PARTÍCULA DE DEFENSA**
+                    if (panelJuegoFX != null) {
 
-                    if (rutaInversa != null && rutaInversa.size() > 1) {
+                        // 1. Intentar encontrar la ruta desde el nodo DEFENSA más cercano
+                        List<Nodo> rutaDefensa = encontrarRutaDesdeTipo(nodoInfectado, TipoNodo.DEFENSA);
 
-                        // 2. Invertir la ruta: Convierte a [Nucleo, ..., Infectado]
-                        // Necesitas importar java.util.Collections
-                        List<Nodo> rutaDefensa = new ArrayList<>(rutaInversa);
-                        Collections.reverse(rutaDefensa);
+                        // 2. Lógica de Respaldo: Si no se encuentra un nodo DEFENSA conectado
+                        if (rutaDefensa == null || rutaDefensa.size() < 2) {
 
-                        // El origen es el primer nodo de la ruta (el Núcleo)
-                        Nodo origen = rutaDefensa.get(0);
+                            // a) Encontrar la ruta inversa al Núcleo: [Infectado, ..., Nucleo]
+                            List<Nodo> rutaInversa = encontrarRutaAlNucleo(nodoInfectado);
 
-                        // 3. Llamar al nuevo metodo de creación de partículas
-                        panelJuegoFX.crearParticula(
-                                origen.getX(), origen.getY(), // Coordenadas del Núcleo
-                                rutaDefensa, // La ruta completa desde el Núcleo hasta el infectado
-                                TipoRecurso.DEFENSA
-                        );
+                            if (rutaInversa != null && rutaInversa.size() > 1) {
+                                // b) Invertir la ruta para que sea [Nucleo, ..., Infectado]
+                                rutaDefensa = new ArrayList<>(rutaInversa); // Crear una copia mutable
+                                Collections.reverse(rutaDefensa); // Necesita importación de java.util.Collections
+                            } else {
+                                // No hay conexión ni al Núcleo, no se puede enviar la partícula.
+                                rutaDefensa = null;
+                            }
+                        }
+
+                        // 3. Si finalmente tenemos una ruta válida (desde DEFENSA o NUCLEO)
+                        if (rutaDefensa != null && rutaDefensa.size() > 1) {
+
+                            // El origen de la partícula es el primer nodo de la ruta
+                            Nodo origenParticula = rutaDefensa.get(0);
+
+                            panelJuegoFX.crearParticula(
+                                    origenParticula.getX(), origenParticula.getY(),
+                                    rutaDefensa,
+                                    TipoRecurso.DEFENSA
+                            );
+                        }
                     }
                 }
             }
