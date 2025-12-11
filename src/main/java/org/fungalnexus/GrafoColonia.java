@@ -15,7 +15,6 @@ public class GrafoColonia {
 
     // Capacidad: Se recalcula cada vez que se construye o destruye un nodo ALMACENAMIENTO.
     private double capacidadNutrienteTotal;
-    private double LIMITE_DEFENSA = 100.0;
 
     // --- Estado de la Amenaza ---
     private final List<Nodo> nodosInfectados;
@@ -224,28 +223,22 @@ public class GrafoColonia {
                 if (nodo.getTipo() == TipoNodo.EXTRACTOR) {
                     extraccionNeta += nodo.getTasaProduccion();
 
-
                     if (panelJuegoFX != null) {
-
                         List<Nodo> rutaRecorrido = encontrarRutaAlNucleo(nodo);
-                        // El destino será el núcleo
                         if (rutaRecorrido != null && rutaRecorrido.size() > 1) {
-                            // pasamos la ruta completa
                             panelJuegoFX.crearParticula(
                                     nodo.getX(), nodo.getY(),
-                                    rutaRecorrido, // Pasamos la ruta
+                                    rutaRecorrido,
                                     TipoRecurso.NUTRIENTE
                             );
                         }
                     }
                 } else if (nodo.getTipo() == TipoNodo.DEFENSA) {
-                    this.defensasTotales += nodo.getTasaDefensa();
-                    produccionDefensaNeta += nodo.getTasaProduccion(); // Asumiendo que getTasaProduccion es la tasa de defensa
+                    produccionDefensaNeta += nodo.getTasaDefensa();
                 }
             }
         }
 
-        // APLICAR LÍMITE GLOBAL
         double nuevoTotal = this.nutrientesTotales + extraccionNeta;
         this.nutrientesTotales = Math.min(nuevoTotal, this.capacidadNutrienteTotal);
 
@@ -255,64 +248,57 @@ public class GrafoColonia {
         }
 
         double nuevoTotalDefensa = this.defensasTotales + produccionDefensaNeta;
-        this.defensasTotales = Math.min(nuevoTotalDefensa, LIMITE_DEFENSA);
+        this.defensasTotales = Math.min(nuevoTotalDefensa, Configuracion.CAPACIDAD_MAXIMA_DEFENSA);
 
     }
 
     public void actualizarInfeccionYCombate(double factorPropagacion, double factorDano, double costoDefensa) {
         if (gameOver) return;
-        // 1. PROPAGACIÓN: Identificar los nuevos nodos que se van a infectar
         Set<Nodo> nuevosInfectados = new HashSet<>();
 
         for (Nodo nodoInfectado : nodosInfectados) {
-            // 1. Infligir daño al nodo (si la bacteria aún no completó la transformación)
+            // 1. Infligir daño al nodo
             if (!nodoInfectado.esBacteriaCompletada()) {
                 nodoInfectado.recibirDano(factorDano);
             }
 
-            // 2. Intentar Sanar / Contener (solo si aún no está transformado)
+            // Logica de defensa
             if (!nodoInfectado.esBacteriaCompletada() && this.defensasTotales >= costoDefensa) {
+
                 this.defensasTotales -= costoDefensa;
                 nodoInfectado.setNivelInfeccion(Math.max(0, nodoInfectado.getNivelInfeccion() - 0.1));
-                // **GENERAR PARTÍCULA DE DEFENSA** (desde el Núcleo hacia el nodo infectado)
-                if (!nodoInfectado.esBacteriaCompletada() && this.defensasTotales >= costoDefensa) {
-                    this.defensasTotales -= costoDefensa;
-                    nodoInfectado.setNivelInfeccion(Math.max(0, nodoInfectado.getNivelInfeccion() - 0.1));
 
-                    // **GENERAR PARTÍCULA DE DEFENSA**
-                    if (panelJuegoFX != null) {
+                if (panelJuegoFX != null) {
 
-                        // 1. Intentar encontrar la ruta desde el nodo DEFENSA más cercano
-                        List<Nodo> rutaDefensa = encontrarRutaDesdeTipo(nodoInfectado, TipoNodo.DEFENSA);
+                    // 1. **DECLARACIÓN** de la ruta (fuera de los ifs anidados)
+                    List<Nodo> rutaDefensa = encontrarRutaDesdeTipo(nodoInfectado, TipoNodo.DEFENSA);
 
-                        // 2. Lógica de Respaldo: Si no se encuentra un nodo DEFENSA conectado
-                        if (rutaDefensa == null || rutaDefensa.size() < 2) {
+                    // 2. Lógica de Respaldo: Si no se encuentra DEFENSA (ruta == null)
+                    if (rutaDefensa == null || rutaDefensa.size() < 2) {
 
-                            // a) Encontrar la ruta inversa al Núcleo: [Infectado, ..., Nucleo]
-                            List<Nodo> rutaInversa = encontrarRutaAlNucleo(nodoInfectado);
+                        // Usar el NÚCLEO como origen de respaldo
+                        List<Nodo> rutaInversa = encontrarRutaAlNucleo(nodoInfectado);
 
-                            if (rutaInversa != null && rutaInversa.size() > 1) {
-                                // b) Invertir la ruta para que sea [Nucleo, ..., Infectado]
-                                rutaDefensa = new ArrayList<>(rutaInversa); // Crear una copia mutable
-                                Collections.reverse(rutaDefensa); // Necesita importación de java.util.Collections
-                            } else {
-                                // No hay conexión ni al Núcleo, no se puede enviar la partícula.
-                                rutaDefensa = null;
-                            }
+                        if (rutaInversa != null && rutaInversa.size() > 1) {
+                            rutaDefensa = new ArrayList<>(rutaInversa);
+                            Collections.reverse(rutaDefensa); // [Nucleo, ..., Infectado]
+                        } else {
+                            rutaDefensa = null; // No hay ruta de conexión
                         }
+                    }
 
-                        // 3. Si finalmente tenemos una ruta válida (desde DEFENSA o NUCLEO)
-                        if (rutaDefensa != null && rutaDefensa.size() > 1) {
+                    // 3. Si finalmente tenemos una ruta válida (desde DEFENSA o NUCLEO)
+                    if (rutaDefensa != null && rutaDefensa.size() > 1) {
+                        Nodo origenParticula = rutaDefensa.get(0);
 
-                            // El origen de la partícula es el primer nodo de la ruta
-                            Nodo origenParticula = rutaDefensa.get(0);
+                        // DIAGNÓSTICO: Esto debería imprimirse si la ruta es válida
+                        System.out.println("Partícula de Defensa CREADA. Origen: " + origenParticula.getTipo() + " -> Destino: " + nodoInfectado.getTipo());
 
-                            panelJuegoFX.crearParticula(
-                                    origenParticula.getX(), origenParticula.getY(),
-                                    rutaDefensa,
-                                    TipoRecurso.DEFENSA
-                            );
-                        }
+                        panelJuegoFX.crearParticula(
+                                origenParticula.getX(), origenParticula.getY(),
+                                rutaDefensa,
+                                TipoRecurso.DEFENSA
+                        );
                     }
                 }
             }
